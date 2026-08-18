@@ -24,8 +24,7 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_REQUEST.value(),
                 "Validation Error",
                 validationErrors,
-                Instant.now()
-        );
+                Instant.now());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
 
@@ -35,9 +34,18 @@ public class GlobalExceptionHandler {
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
                 "Document Processing Failed",
                 ex.getMessage(),
-                Instant.now()
-        );
+                Instant.now());
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+    }
+
+    @ExceptionHandler(LowConfidenceException.class)
+    public ResponseEntity<ErrorResponse> handleLowConfidenceException(LowConfidenceException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(),
+                "Low Retrieval Confidence",
+                ex.getMessage(),
+                Instant.now());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
 
     @ExceptionHandler(Exception.class)
@@ -46,8 +54,7 @@ public class GlobalExceptionHandler {
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
                 "Internal Server Error",
                 ex.getMessage(),
-                Instant.now()
-        );
+                Instant.now());
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
     }
 }
