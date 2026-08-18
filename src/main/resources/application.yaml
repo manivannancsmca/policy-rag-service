@@ -1,3 +1,48 @@
+server:
+  port: 8080
+
 spring:
+  web:
+    error:
+      include-message: always
   application:
     name: policy-rag-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/rag_db
+    username: rag_user
+    password: rag_password
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 300000
+
+  ai:
+    ollama:
+      base-url: http://localhost:11435
+      chat:
+        model: llama3.2
+        temperature: 0.1 # Low temperature minimizes creative hallucination
+        top-p: 0.2
+      embedding:
+        model: nomic-embed-text # High performance lightweight embedding model
+
+    vectorstore:
+      pgvector:
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        dimensions: 768
+        initialize-schema: true
+
+rag:
+  ingestion:
+    chunk-size: 800
+    chunk-overlap: 150
+  retrieval:
+    similarity-threshold: 0.70
+    top-k: 6
+    min-results: 2
+    max-results: 8
+  memory:
+    max-messages: 10
