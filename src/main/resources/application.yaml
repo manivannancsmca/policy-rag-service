@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: 5666
 
 spring:
   application:
@@ -17,7 +17,7 @@ spring:
 
   ai:
     ollama:
-      base-url: http://localhost:11435
+      base-url: http://localhost:11434
       chat:
         model: llama3.2
         temperature: 0.1 # Low temperature minimizes creative hallucination
@@ -37,7 +37,7 @@ rag:
     chunk-size: 800
     chunk-overlap: 150
   retrieval:
-    similarity-threshold: 0.70
+    similarity-threshold: 0.75
     top-k: 6
     min-results: 2
     max-results: 8

@@ -1,11 +1,8 @@
 package com.policy.rag.app.service;
 
-
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.pdf.PagePdfDocumentReader;
 import org.springframework.ai.reader.pdf.config.PdfDocumentReaderConfig;
@@ -14,7 +11,7 @@ import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -24,14 +21,14 @@ import com.policy.rag.app.dto.IngestionResponse;
 import com.policy.rag.app.exception.DocumentProcessingException;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
+@Slf4j
 @Service
-//@Slf4j
-//@RequiredArgsConstructor
+@RequiredArgsConstructor
 public class DocumentIngestionService {
-
-    private static final Logger log = LoggerFactory.getLogger(DocumentIngestionService.class);
 
     private final VectorStore vectorStore;
 
@@ -41,10 +38,6 @@ public class DocumentIngestionService {
     @Value("${rag.ingestion.chunk-overlap:150}")
     private int chunkOverlap;
 
-    public DocumentIngestionService( VectorStore vectorStore) {
-        this.vectorStore = vectorStore;
-    }
-
     /**
      * Delete all vector chunks associated with a specific file name using metadata filtering.
      */
@@ -52,15 +45,12 @@ public class DocumentIngestionService {
         log.info("Initiating deletion of all vector chunks for document: {}", fileName);
 
         try {
-            // 1. Build Metadata Filter Expression
-            FilterExpressionBuilder b = new FilterExpressionBuilder();
-            var filterExpression = b.eq("file_name", fileName).build();
+            var filterExpression = new FilterExpressionBuilder().eq("file_name", fileName).build();
 
-            // 2. Retrieve all chunk IDs matching the file_name filter
             List<Document> matchingDocs = vectorStore.similaritySearch(
                     SearchRequest.query("*")
-                            .withTopK(10000) // retrieve all chunks for this file
-                            .withSimilarityThreshold(0.0) // bypass distance check to match metadata only
+                            .withTopK(10000)
+                            .withSimilarityThreshold(0.0)
                             .withFilterExpression(filterExpression)
             );
 
@@ -69,7 +59,6 @@ public class DocumentIngestionService {
                 return new DeletionResponse(fileName, 0, "NOT_FOUND", "No existing vector chunks found for this document.");
             }
 
-            // 3. Extract IDs and purge from Pgvector
             List<String> documentIds = matchingDocs.stream()
                     .map(Document::getId)
                     .toList();
@@ -101,7 +90,7 @@ public class DocumentIngestionService {
     }
 
     /**
-     * Batch Ingestion with Metadata Enriched Chunking
+     * Batch Ingestion with Metadata-Enriched Chunking & Null-Safe Metadata Sanitization
      */
     public IngestionResponse ingestUploadedFiles(List<MultipartFile> files) {
         long startTime = System.currentTimeMillis();
@@ -111,7 +100,7 @@ public class DocumentIngestionService {
         TokenTextSplitter splitter = new TokenTextSplitter(chunkSize, chunkOverlap, 5, 10000, true);
 
         for (MultipartFile file : files) {
-            if (file.isEmpty() || !file.getOriginalFilename().toLowerCase().endsWith(".pdf")) {
+            if (file.isEmpty() || file.getOriginalFilename() == null || !file.getOriginalFilename().toLowerCase().endsWith(".pdf")) {
                 log.warn("Skipping empty or non-PDF file: {}", file.getOriginalFilename());
                 continue;
             }
@@ -120,7 +109,8 @@ public class DocumentIngestionService {
                 String filename = file.getOriginalFilename();
                 log.info("Processing PDF file: {}", filename);
 
-                InputStreamResource resource = new InputStreamResource(file.getInputStream());
+                // Use ByteArrayResource for safer stream handling across multi-page reads
+                ByteArrayResource resource = new ByteArrayResource(file.getBytes());
                 PagePdfDocumentReader pdfReader = new PagePdfDocumentReader(
                         resource,
                         PdfDocumentReaderConfig.builder()
@@ -129,13 +119,31 @@ public class DocumentIngestionService {
                                 .build()
                 );
 
-                List<Document> documents = pdfReader.get();
-                List<Document> chunks = splitter.apply(documents);
+                List<Document> rawDocuments = pdfReader.get();
+
+                // Sanitize metadata map to prevent NullPointerException inside TextSplitter
+                List<Document> sanitizedDocuments = rawDocuments.stream()
+                        .map(doc -> {
+                            Map<String, Object> cleanMetadata = new HashMap<>();
+                            if (doc.getMetadata() != null) {
+                                doc.getMetadata().forEach((k, v) -> {
+                                    if (k != null && v != null) {
+                                        cleanMetadata.put(k, v);
+                                    }
+                                });
+                            }
+                            return new Document(doc.getId(), doc.getContent(), cleanMetadata);
+                        })
+                        .toList();
+
+                // Perform safe chunking
+                List<Document> chunks = splitter.apply(sanitizedDocuments);
 
                 // Enrich every chunk with document metadata
+                long now = System.currentTimeMillis();
                 chunks.forEach(chunk -> {
                     chunk.getMetadata().put("file_name", filename);
-                    chunk.getMetadata().put("ingested_at", System.currentTimeMillis());
+                    chunk.getMetadata().put("ingested_at", now);
                 });
 
                 allChunks.addAll(chunks);
@@ -143,7 +151,7 @@ public class DocumentIngestionService {
 
             } catch (Exception e) {
                 log.error("Failed to process uploaded file {}: ", file.getOriginalFilename(), e);
-                throw new DocumentProcessingException("Error reading PDF stream: " + file.getOriginalFilename());
+                throw new DocumentProcessingException("Error processing PDF: " + file.getOriginalFilename());
             }
         }
 
