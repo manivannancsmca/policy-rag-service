@@ -2,9 +2,6 @@ server:
   port: 8080
 
 spring:
-  web:
-    error:
-      include-message: always
   application:
     name: policy-rag-service
 
