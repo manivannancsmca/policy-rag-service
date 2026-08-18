@@ -15,10 +15,14 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/admin/documents")
-@RequiredArgsConstructor
+//@RequiredArgsConstructor
 public class IngestionController {
 
     private final DocumentIngestionService ingestionService;
+
+    public IngestionController(DocumentIngestionService ingestionService) {
+        this.ingestionService = ingestionService;
+    }
 
     /**
      * Upload new PDF document(s)

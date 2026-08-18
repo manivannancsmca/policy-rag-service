@@ -28,7 +28,7 @@ import java.util.List;
 
 @Service
 //@Slf4j
-@RequiredArgsConstructor
+//@RequiredArgsConstructor
 public class DocumentIngestionService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentIngestionService.class);
@@ -40,6 +40,10 @@ public class DocumentIngestionService {
 
     @Value("${rag.ingestion.chunk-overlap:150}")
     private int chunkOverlap;
+
+    public DocumentIngestionService( VectorStore vectorStore) {
+        this.vectorStore = vectorStore;
+    }
 
     /**
      * Delete all vector chunks associated with a specific file name using metadata filtering.
