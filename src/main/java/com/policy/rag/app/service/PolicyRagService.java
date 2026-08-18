@@ -1,5 +1,8 @@
 package com.policy.rag.app.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -20,107 +23,116 @@ import java.util.stream.Collectors;
 
 @Service
 @Slf4j
-@RequiredArgsConstructor
+//@RequiredArgsConstructor
 public class PolicyRagService {
 
-    private final VectorStore vectorStore;
-    private final ChatClient chatClient;
+        private static final Logger log = LoggerFactory.getLogger(PolicyRagService.class);
 
-    @Value("${rag.retrieval.similarity-threshold}")
-    private double similarityThreshold;
+        private final VectorStore vectorStore;
+        private final ChatClient chatClient;
 
-    @Value("${rag.retrieval.top-k}")
-    private int topK;
+        @Value("${rag.retrieval.similarity-threshold}")
+        private double similarityThreshold;
 
-    private static final String NOT_FOUND_TOKEN = "INFORMATION_NOT_AVAILABLE";
+        @Value("${rag.retrieval.top-k}")
+        private int topK;
 
-    private static final String SYSTEM_PROMPT = """
-        You are an official enterprise AI policy assistant. 
-        Answer the employee's question strictly using the provided Context documents below.
-        
-        Strict Constraints:
-        1. If the exact information needed to answer the question is not present in the provided context, respond ONLY with "INFORMATION_NOT_AVAILABLE".
-        2. Do NOT use outside knowledge or make assumptions beyond the text provided.
-        3. Keep your response professional, precise, and concise.
+        private static final String NOT_FOUND_TOKEN = "INFORMATION_NOT_AVAILABLE";
 
-        Context:
-        {context}
-        """;
+        private static final String SYSTEM_PROMPT = """
+                        You are an official enterprise AI policy assistant.
+                        Answer the employee's question strictly using the provided Context documents below.
 
-    public QueryResponse answerQuestion(QueryRequest request) {
-        log.info("Executing RAG search for query: '{}' under conversation [{}]", 
-                request.question(), request.conversationId());
+                        Strict Constraints:
+                        1. If the exact information needed to answer the question is not present in the provided context, respond ONLY with "INFORMATION_NOT_AVAILABLE".
+                        2. Do NOT use outside knowledge or make assumptions beyond the text provided.
+                        3. Keep your response professional, precise, and concise.
 
-        // 1. Vector Search with Thresholding
-        List<Document> similarDocuments = vectorStore.similaritySearch(
-                SearchRequest.query(request.question())
-                        .withTopK(topK)
-                        .withSimilarityThreshold(similarityThreshold)
-        );
+                        Context:
+                        {context}
+                        """;
 
-        // 2. Short-circuit if no relevant contexts survive distance thresholding
-        if (similarDocuments.isEmpty()) {
-            log.warn("No context chunks matched similarity threshold >= {} for query", similarityThreshold);
-            return createFallbackResponse(request);
+        public PolicyRagService(VectorStore vectorStore, ChatClient chatClient) {
+                this.vectorStore = vectorStore;
+                this.chatClient = chatClient;
         }
 
-        // 3. Assemble Grounding Context Block
-        String contextBlock = similarDocuments.stream()
-                .map(doc -> String.format("[Source: %s | Page: %s]\n%s",
-                        doc.getMetadata().getOrDefault("file_name", "Unknown"),
-                        doc.getMetadata().getOrDefault("page_number", "N/A"),
-                        doc.getContent()))
-                .collect(Collectors.joining("\n---\n"));
+        public QueryResponse answerQuestion(QueryRequest request) {
+                log.info("Executing RAG search for query: '{}' under conversation [{}]",
+                                request.question(), request.conversationId());
 
-        // 4. Construct System Prompt & Call LLM
-        SystemPromptTemplate promptTemplate = new SystemPromptTemplate(SYSTEM_PROMPT);
-        String formattedSystemPrompt = promptTemplate.createMessage(Map.of("context", contextBlock)).getContent();
+                // 1. Vector Search with Thresholding
+                List<Document> similarDocuments = vectorStore.similaritySearch(
+                                SearchRequest.query(request.question())
+                                                .withTopK(topK)
+                                                .withSimilarityThreshold(similarityThreshold));
 
-        String rawLlmResponse = chatClient.prompt()
-                .system(formattedSystemPrompt)
-                .user(request.question())
-                .advisors(a -> a.param(MessageChatMemoryAdvisor.CHAT_MEMORY_CONVERSATION_ID_KEY, request.conversationId()))
-                .call()
-                .content();
+                // 2. Short-circuit if no relevant contexts survive distance thresholding
+                if (similarDocuments.isEmpty()) {
+                        log.warn("No context chunks matched similarity threshold >= {} for query", similarityThreshold);
+                        return createFallbackResponse(request);
+                }
 
-        // 5. Output Validation against Anti-Hallucination Sentinel Token
-        if (rawLlmResponse == null || rawLlmResponse.contains(NOT_FOUND_TOKEN)) {
-            return createFallbackResponse(request);
+                // 3. Assemble Grounding Context Block
+                String contextBlock = similarDocuments.stream()
+                                .map(doc -> String.format("[Source: %s | Page: %s]\n%s",
+                                                doc.getMetadata().getOrDefault("file_name", "Unknown"),
+                                                doc.getMetadata().getOrDefault("page_number", "N/A"),
+                                                doc.getContent()))
+                                .collect(Collectors.joining("\n---\n"));
+
+                // 4. Construct System Prompt & Call LLM
+                SystemPromptTemplate promptTemplate = new SystemPromptTemplate(SYSTEM_PROMPT);
+                String formattedSystemPrompt = promptTemplate.createMessage(Map.of("context", contextBlock))
+                                .getContent();
+
+                String rawLlmResponse = chatClient.prompt()
+                                .system(formattedSystemPrompt)
+                                .user(request.question())
+                                .advisors(a -> a.param(MessageChatMemoryAdvisor.CHAT_MEMORY_CONVERSATION_ID_KEY,
+                                                request.conversationId()))
+                                .call()
+                                .content();
+
+                // 5. Output Validation against Anti-Hallucination Sentinel Token
+                if (rawLlmResponse == null || rawLlmResponse.contains(NOT_FOUND_TOKEN)) {
+                        return createFallbackResponse(request);
+                }
+
+                // 6. Map Metadata Citations
+                List<QueryResponse.Citation> citations = similarDocuments.stream()
+                                .map(doc -> new QueryResponse.Citation(
+                                                (String) doc.getMetadata().getOrDefault("file_name", "Policy Document"),
+                                                parsePageNumber(doc.getMetadata().get("page_number"))))
+                                .distinct()
+                                .toList();
+
+                return new QueryResponse(
+                                request.conversationId(),
+                                request.question(),
+                                rawLlmResponse.trim(),
+                                true,
+                                citations);
         }
 
-        // 6. Map Metadata Citations
-        List<QueryResponse.Citation> citations = similarDocuments.stream()
-                .map(doc -> new QueryResponse.Citation(
-                        (String) doc.getMetadata().getOrDefault("file_name", "Policy Document"),
-                        parsePageNumber(doc.getMetadata().get("page_number"))
-                ))
-                .distinct()
-                .toList();
-
-        return new QueryResponse(
-                request.conversationId(),
-                request.question(),
-                rawLlmResponse.trim(),
-                true,
-                citations
-        );
-    }
-
-    private QueryResponse createFallbackResponse(QueryRequest request) {
-        return new QueryResponse(
-                request.conversationId(),
-                request.question(),
-                "The requested information is not available in the company policy documents.",
-                false,
-                List.of()
-        );
-    }
-
-    private int parsePageNumber(Object pageMeta) {
-        if (pageMeta instanceof Integer i) return i;
-        if (pageMeta instanceof String s) {
-            try { return Integer.parseInt(s); } catch (NumberFormatException ignored) {}
+        private QueryResponse createFallbackResponse(QueryRequest request) {
+                return new QueryResponse(
+                                request.conversationId(),
+                                request.question(),
+                                "The requested information is not available in the company policy documents.",
+                                false,
+                                List.of());
         }
-        return 0;
-    }
+
+        private int parsePageNumber(Object pageMeta) {
+                if (pageMeta instanceof Integer i)
+                        return i;
+                if (pageMeta instanceof String s) {
+                        try {
+                                return Integer.parseInt(s);
+                        } catch (NumberFormatException ignored) {
+                        }
+                }
+                return 0;
+        }
 }

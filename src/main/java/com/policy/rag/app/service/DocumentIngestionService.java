@@ -3,6 +3,9 @@ package com.policy.rag.app.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.pdf.PagePdfDocumentReader;
 import org.springframework.ai.reader.pdf.config.PdfDocumentReaderConfig;
@@ -24,9 +27,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Service
-@Slf4j
+//@Slf4j
 @RequiredArgsConstructor
 public class DocumentIngestionService {
+
+    private static final Logger log = LoggerFactory.getLogger(DocumentIngestionService.class);
 
     private final VectorStore vectorStore;
 

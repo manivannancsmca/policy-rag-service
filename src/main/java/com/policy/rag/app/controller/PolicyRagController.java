@@ -11,10 +11,14 @@ import com.policy.rag.app.service.PolicyRagService;
 
 @RestController
 @RequestMapping("/api/v1/policy")
-@RequiredArgsConstructor
+// @RequiredArgsConstructor
 public class PolicyRagController {
 
     private final PolicyRagService ragService;
+
+    public PolicyRagController(PolicyRagService ragService) {
+        this.ragService = ragService;
+    }
 
     @PostMapping("/ask")
     public ResponseEntity<QueryResponse> askQuestion(@Valid @RequestBody QueryRequest request) {
