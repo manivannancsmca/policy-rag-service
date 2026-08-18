@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.policy.rag.app.dto.IngestionResponse;
+import com.policy.rag.app.exception.DocumentProcessingException;
 
 import java.io.File;
 import java.nio.file.Files;
