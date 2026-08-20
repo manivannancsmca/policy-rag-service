@@ -43,3 +43,4 @@ rag:
     max-results: 8
   memory:
     max-messages: 10
+  
