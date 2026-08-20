@@ -15,7 +15,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/admin/documents")
-//@RequiredArgsConstructor
 public class IngestionController {
 
     private final DocumentIngestionService ingestionService;
