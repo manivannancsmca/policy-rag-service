@@ -31,3 +31,4 @@ services:
 volumes:
   pgvector_data:
   ollama_storage:
+  
