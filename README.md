@@ -94,6 +94,7 @@ curl -X POST http://localhost:8080/api/v1/policy/ask \
 ```
 
 #### 4. Ask an Unrelated Query (Hallucination & Refusal Test)
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/policy/ask \
   -H "Content-Type: application/json" \
